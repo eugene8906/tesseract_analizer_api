@@ -1,0 +1,71 @@
+services:
+  db:
+    image: postgres:16.4
+    container_name: file_analyzer_db
+    env_file:
+      - .env-non-dev
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/init_db.sh:/docker-entrypoint-initdb.d/init_db.sh
+    ports:
+      - "5434:5432"
+    networks:
+      - backend
+    command: ["postgres", "-c", "listen_addresses=*","-c", "max_connections=200", "-c", "shared_buffers=256MB"]
+
+  rabbitmq:
+    image: rabbitmq:4.0.3
+    env_file:
+      - .env-non-dev
+    environment:
+      RABBITMQ_DEFAULT_USER: eugene
+      RABBITMQ_DEFAULT_PASS: 1106
+    ports:
+      - "5674:5672"
+      - "15674:15672"
+    mem_limit: 2g
+    networks:
+      - backend
+
+  file_analyzer:
+    build:
+      context: .
+    container_name: file_analyzer_app
+    env_file:
+      - .env-non-dev
+    environment:
+      - MODE=PROD
+    volumes:
+      - .:/app
+      - ./documents:/file_analyzer/documents
+    networks:
+      - backend
+    depends_on:
+      - db
+      - rabbitmq
+    command: ["/file_analyzer/docker/app.sh"]
+    ports:
+      - "8000:8000"
+
+  celery:
+    build:
+      context: .
+    container_name: file_analyzer_celery
+    depends_on:
+      - rabbitmq
+      - db
+    env_file:
+      - .env-non-dev
+    volumes:
+      - ./documents:/file_analyzer/documents  # Добавление volume
+    command: celery -A app.celery_app worker --loglevel=info
+    networks:
+      - backend
+
+networks:
+  backend:
+    external: true
+    driver: bridge
+
+volumes:
+  postgres_data:
